@@ -9,9 +9,16 @@ import { ChatInterface } from "@/components/ChatInterface";
 
 export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  const handleProfileLoaded = (newProfile: DatasetProfile, newWarnings?: string[]) => {
+    setProfile(newProfile);
+    setWarnings(newWarnings || []);
+  };
 
   const handleResetSession = () => {
     setProfile(null);
+    setWarnings([]);
   };
 
   return (
@@ -24,11 +31,11 @@ export default function Home() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {!profile ? (
-          <UploadSection onProfileLoaded={setProfile} />
+          <UploadSection onProfileLoaded={handleProfileLoaded} />
         ) : (
           <div className="space-y-8">
             {/* Profiling Dashboard Section */}
-            <ProfilingDashboard profile={profile} />
+            <ProfilingDashboard profile={profile} warnings={warnings} />
 
             {/* Chat Interface Section */}
             <ChatInterface datasetName={profile.filename} />

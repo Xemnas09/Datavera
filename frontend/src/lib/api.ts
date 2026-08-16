@@ -46,6 +46,13 @@ export interface UploadResponse {
   session_id: string;
   message: string;
   profile: DatasetProfile;
+  confidence_score: number;
+  requires_user_action: boolean;
+  detected_header_index: number;
+  selected_sheet?: string;
+  available_sheets: string[];
+  warnings: string[];
+  raw_preview_rows: any[][];
 }
 
 export interface SampleDatasetInfo {
@@ -114,6 +121,28 @@ export async function uploadFile(
     xhr.onerror = () => reject(new Error("Erreur réseau lors de l'envoi du fichier."));
     xhr.send(formData);
   });
+}
+
+export async function reconfigureIngestion(
+  config: { sheet_name?: string; header_index?: number; delimiter?: string }
+): Promise<UploadResponse> {
+  const sessionId = getSessionId();
+  const res = await fetch(`${API_BASE_URL}/api/upload/configure`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-session-id": sessionId,
+    },
+    body: JSON.stringify(config),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Erreur lors de la reconfiguration de l'importation.");
+  }
+  const data: UploadResponse = await res.json();
+  if (data.session_id) setSessionId(data.session_id);
+  return data;
 }
 
 export async function fetchSampleDatasets(): Promise<SampleDatasetInfo[]> {
