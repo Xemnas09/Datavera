@@ -18,8 +18,15 @@ from app.schemas import (
     SessionInfoResponse,
     ChatMessageRequest,
     ChatMessageResponse,
-    IngestionConfigRequest
+    IngestionConfigRequest,
+    ReclassifyColumnRequest,
+    ColumnClassificationSchema,
+    ChartExploreRequest,
+    ChartExploreResponse,
+    ChartValidationResultSchema
 )
+from app.column_classifier import ColumnClassification, validate_chart_config
+from app.chart_generator import build_echarts_for_config
 
 app = FastAPI(
     title="Datavera API",
@@ -183,6 +190,92 @@ def reconfigure_ingestion(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la reconfiguration de l'import: {str(e)}")
+
+@app.post("/api/session/reclassify", response_model=ColumnClassificationSchema)
+def reclassify_column(
+    body: ReclassifyColumnRequest,
+    x_session_id: Optional[str] = Header(None)
+):
+    session = session_manager.get_session(x_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée.")
+
+    if body.target_type not in ["numeric", "categorical", "identifier", "datetime"]:
+        raise HTTPException(status_code=400, detail=f"Type cible invalide: '{body.target_type}'. Types valides: numeric, categorical, identifier, datetime.")
+
+    existing = session.classifications.get(body.column_name)
+    dtype_str = existing.dtype_pandas if existing else "object"
+    cardinality = existing.cardinality if existing else 0
+    cardinality_ratio = existing.cardinality_ratio if existing else 0.0
+
+    updated_cls = ColumnClassificationSchema(
+        name=body.column_name,
+        dtype_pandas=dtype_str,
+        inferred_type=body.target_type,
+        confidence=1.0,  # Manual user override
+        reasons=[f"Reclassification manuelle par l'utilisateur vers '{body.target_type}'"],
+        cardinality=cardinality,
+        cardinality_ratio=cardinality_ratio
+    )
+    session.classifications[body.column_name] = updated_cls
+    return updated_cls
+
+@app.post("/api/chart/explore", response_model=ChartExploreResponse)
+def explore_chart(
+    body: ChartExploreRequest,
+    x_session_id: Optional[str] = Header(None)
+):
+    session = session_manager.get_session(x_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée.")
+
+    conn = session.get_connection()
+    try:
+        df = conn.execute("SELECT * FROM dataset LIMIT 5000").df()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Aucun jeu de données chargé dans cette session.")
+
+    # Convert session classifications to dataclasses
+    cls_dataclasses = {}
+    for col_name, cls_schema in session.classifications.items():
+        cls_dataclasses[col_name] = ColumnClassification(
+            name=cls_schema.name,
+            dtype_pandas=cls_schema.dtype_pandas,
+            inferred_type=cls_schema.inferred_type,
+            confidence=cls_schema.confidence,
+            reasons=cls_schema.reasons,
+            cardinality=cls_schema.cardinality,
+            cardinality_ratio=cls_schema.cardinality_ratio
+        )
+
+    val_res = validate_chart_config(
+        df=df,
+        chart_type=body.chart_type,
+        mapping=body.mapping,
+        classifications=cls_dataclasses
+    )
+
+    validation_schema = ChartValidationResultSchema(
+        is_valid=val_res.is_valid,
+        errors=val_res.errors,
+        warnings=val_res.warnings,
+        suggestion=val_res.suggestion
+    )
+
+    chart_options = None
+    if val_res.is_valid:
+        chart_options = build_echarts_for_config(
+            df=df,
+            chart_type=body.chart_type,
+            mapping=body.mapping,
+            classifications=cls_dataclasses
+        )
+
+    return ChartExploreResponse(
+        chart_type=body.chart_type,
+        validation=validation_schema,
+        chart_options=chart_options
+    )
 
 @app.post("/api/query", response_model=ChatMessageResponse)
 def query_dataset(

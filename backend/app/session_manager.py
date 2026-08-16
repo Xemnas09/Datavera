@@ -18,6 +18,7 @@ class Session:
         self.last_activity = time.time()
         self.dataset_filename: Optional[str] = None
         self.table_name: str = "dataset"
+        self.classifications: Dict[str, Any] = {}
         self._conn: Optional[duckdb.DuckDBPyConnection] = None
 
     def touch(self):

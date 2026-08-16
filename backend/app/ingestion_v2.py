@@ -259,10 +259,12 @@ def sanitize_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
 
     # 4. Column Data Normalization
     for col in df.columns:
-        # Convert missing value strings and Excel errors
-        df[col] = df[col].apply(
-            lambda v: None if pd.isna(v) or v is None or str(v).strip().lower() in MISSING_VALUE_STRINGS or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v
+        # Convert missing value strings and Excel errors to np.nan (preserving numeric series dtypes)
+        mask_missing = df[col].apply(
+            lambda v: True if pd.isna(v) or v is None or str(v).strip().lower() in MISSING_VALUE_STRINGS or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else False
         )
+        if mask_missing.any():
+            df.loc[mask_missing, col] = np.nan
 
         non_nulls = df[col].dropna()
         if non_nulls.empty:
@@ -287,11 +289,17 @@ def sanitize_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
             if all(bool(french_num_pattern.match(str(v).strip())) for v in non_nulls[:20]):
                 try:
                     df[col] = df[col].apply(
-                        lambda v: float(str(v).replace(" ", "").replace(",", ".")) if v is not None and str(v).strip() != "" else None
+                        lambda v: float(str(v).replace(" ", "").replace(",", ".")) if pd.notna(v) and str(v).strip() != "" else np.nan
                     )
                     warnings.append(f"Colonne '{col}' : nombres au format régional français (ex: '1 234,56') convertis en numériques.")
                 except Exception:
                     pass
+
+        # Convert numeric object columns to numeric dtypes if possible
+        if df[col].dtype == "object":
+            converted = pd.to_numeric(df[col], errors="coerce")
+            if converted.notna().sum() > 0 and converted.notna().mean() >= 0.5:
+                df[col] = converted
 
     return df, warnings
 
