@@ -2,9 +2,35 @@ import math
 import duckdb
 from typing import List, Dict, Any
 from app.session_manager import Session
-from app.schemas import DatasetProfile, ColumnProfile
+from app.schemas import DatasetProfile, ColumnProfile, ColumnClassificationSchema
+from app.column_classifier import classify_dataframe
 
 def profile_dataset(session: Session, file_size_bytes: int) -> DatasetProfile:
+    conn = session.get_connection()
+    table_name = session.table_name
+
+    # Run column classification on session dataframe (sample top 5000 rows for performance)
+    full_df = conn.execute(f"SELECT * FROM {table_name} LIMIT 5000").df()
+    classifications_dict = classify_dataframe(full_df)
+
+    # Save to session cache (if not already manually set)
+    if not session.classifications:
+        session.classifications = {}
+    for col, cls in classifications_dict.items():
+        if col not in session.classifications:
+            session.classifications[col] = ColumnClassificationSchema(
+                name=cls.name,
+                dtype_pandas=cls.dtype_pandas,
+                inferred_type=cls.inferred_type,
+                confidence=cls.confidence,
+                reasons=cls.reasons,
+                cardinality=cls.cardinality,
+                cardinality_ratio=cls.cardinality_ratio
+            )
+
+    return _build_profile(session, file_size_bytes)
+
+def _build_profile(session: Session, file_size_bytes: int) -> DatasetProfile:
     conn = session.get_connection()
     table_name = session.table_name
 
@@ -69,6 +95,8 @@ def profile_dataset(session: Session, file_size_bytes: int) -> DatasetProfile:
             except Exception:
                 stats = {}
 
+        col_classification = session.classifications.get(col_name)
+
         columns_profile.append(
             ColumnProfile(
                 name=col_name,
@@ -77,7 +105,8 @@ def profile_dataset(session: Session, file_size_bytes: int) -> DatasetProfile:
                 null_percentage=null_percentage,
                 unique_count=unique_count,
                 sample_values=sample_vals,
-                stats=stats if stats else None
+                stats=stats if stats else None,
+                classification=col_classification
             )
         )
 
@@ -88,5 +117,6 @@ def profile_dataset(session: Session, file_size_bytes: int) -> DatasetProfile:
         column_count=column_count,
         columns=columns_profile,
         sample_rows=sample_rows,
-        table_name=table_name
+        table_name=table_name,
+        classifications=session.classifications
     )

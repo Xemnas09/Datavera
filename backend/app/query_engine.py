@@ -1,12 +1,14 @@
 import math
 import logging
 import duckdb
+import pandas as pd
 from typing import Dict, Any, List, Optional
 from app.session_manager import Session
 from app.schemas import ChatMessageResponse
 from app.llm_service import generate_sql_query
 from app.sql_validator import validate_and_clean_sql
 from app.chart_generator import generate_echarts_options
+from app.column_classifier import validate_chart_config, ColumnClassification
 
 logger = logging.getLogger("datavera.query_engine")
 
@@ -103,10 +105,47 @@ def process_chat_query(
             error=exec_error
         )
 
-    # 4. Generate ECharts Option if suitable
+    # 4. Generate ECharts Option if suitable and valid
     chart_recommended, chart_type, chart_options = generate_echarts_options(
         question, results, columns
     )
+
+    if chart_recommended and chart_type and results:
+        res_df = pd.DataFrame(results)
+
+        # Prepare column classifications for result DataFrame
+        cls_dataclasses = {}
+        for col_name, cls_schema in session.classifications.items():
+            cls_dataclasses[col_name] = ColumnClassification(
+                name=cls_schema.name,
+                dtype_pandas=cls_schema.dtype_pandas,
+                inferred_type=cls_schema.inferred_type,
+                confidence=cls_schema.confidence,
+                reasons=cls_schema.reasons,
+                cardinality=cls_schema.cardinality,
+                cardinality_ratio=cls_schema.cardinality_ratio
+            )
+
+        # Build chart mapping based on chart type and columns
+        mapping = {}
+        if chart_type in ("bar", "pie", "donut", "treemap"):
+            if len(columns) >= 2:
+                mapping = {"category": columns[0], "value": columns[1], "x": columns[0], "y": columns[1]}
+        elif chart_type in ("line", "area"):
+            if len(columns) >= 2:
+                mapping = {"x": columns[0], "y": columns[1]}
+
+        if mapping:
+            val_res = validate_chart_config(
+                df=res_df,
+                chart_type=chart_type,
+                mapping=mapping,
+                classifications=cls_dataclasses if all(col in cls_dataclasses for col in mapping.values()) else None
+            )
+            if not val_res.is_valid:
+                logger.info(f"Chatbot chart validation rejected chart '{chart_type}': {val_res.errors}")
+                chart_recommended = False
+                chart_options = None
 
     return ChatMessageResponse(
         question=question,

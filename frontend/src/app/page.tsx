@@ -6,10 +6,13 @@ import { Navbar } from "@/components/Navbar";
 import { UploadSection } from "@/components/UploadSection";
 import { ProfilingDashboard } from "@/components/ProfilingDashboard";
 import { ChatInterface } from "@/components/ChatInterface";
+import { ManualExploration } from "@/components/ManualExploration";
+import { MessageSquare, BarChart3, Database } from "lucide-react";
 
 export default function Home() {
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<"chat" | "explore" | "profile">("chat");
 
   const handleProfileLoaded = (newProfile: DatasetProfile, newWarnings?: string[]) => {
     setProfile(newProfile);
@@ -33,12 +36,59 @@ export default function Home() {
         {!profile ? (
           <UploadSection onProfileLoaded={handleProfileLoaded} />
         ) : (
-          <div className="space-y-8">
-            {/* Profiling Dashboard Section */}
-            <ProfilingDashboard profile={profile} warnings={warnings} />
+          <div className="space-y-6">
+            {/* View Switcher Tabs */}
+            <div className="flex border-b border-slate-200 bg-white rounded-xl p-1.5 shadow-sm border">
+              <button
+                onClick={() => setActiveTab("chat")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
+                  activeTab === "chat"
+                    ? "bg-brand-50 text-brand-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Assistant IA & Chat</span>
+              </button>
 
-            {/* Chat Interface Section */}
-            <ChatInterface datasetName={profile.filename} />
+              <button
+                onClick={() => setActiveTab("explore")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
+                  activeTab === "explore"
+                    ? "bg-brand-50 text-brand-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>Exploration Graphique (16 Types)</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("profile")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
+                  activeTab === "profile"
+                    ? "bg-brand-50 text-brand-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                <Database className="w-4 h-4" />
+                <span>Aperçu & Profilage des Données</span>
+              </button>
+            </div>
+
+            {/* Active View Content */}
+            {activeTab === "chat" && <ChatInterface datasetName={profile.filename} />}
+
+            {activeTab === "explore" && (
+              <ManualExploration
+                profile={profile}
+                onProfileUpdate={(newProf) => setProfile(newProf)}
+              />
+            )}
+
+            {activeTab === "profile" && (
+              <ProfilingDashboard profile={profile} warnings={warnings} />
+            )}
           </div>
         )}
       </main>
