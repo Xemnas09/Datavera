@@ -21,8 +21,8 @@ Pour garantir un coût d'hébergement et d'utilisation **strictement nul ($0.00/
 3. **Confidentialité et Quotas LLM Optimisés** :
    - Le LLM externe (Groq / Gemini Free Tier) ne reçoit **jamais** les fichiers bruts ni l'intégralité du dataset.
    - Il reçoit uniquement le schéma des colonnes et un échantillon de 3 lignes pour générer la requête DuckDB SQL, garantissant à la fois un respect strict de la confidentialité et un coût de jetons (tokens) insignifiant.
-4. **Architecture BFF Proxy (Next.js & FastAPI)** :
-   - Le frontend Next.js fait office de proxy léger BFF (Backend For Frontend) déployable gratuitement sur Vercel, déléguant tous les calculs lourds au backend Python FastAPI hébergé sur Render/Railway (Free Tier).
+4. **Architecture BFF Proxy (Next.js & FastAPI sur Hugging Face Spaces)** :
+   - Le frontend Next.js fait office de proxy léger BFF (Backend For Frontend) déployé gratuitement sur Vercel, déléguant tous les calculs lourds au backend Python FastAPI hébergé en conteneur Docker sur Hugging Face Spaces (offrant jusqu'à 16 Go de RAM en Free Tier).
 
 ---
 
@@ -57,14 +57,14 @@ Pour garantir un coût d'hébergement et d'utilisation **strictement nul ($0.00/
 
 - **Tableaux multiples sur une seule feuille Excel** : Le pipeline est optimisé pour les fichiers contenant une table structurée principale par feuille. Les fichiers comportant plusieurs sous-tableaux indépendants sur la même feuille ne sont pas gérés automatiquement.
 - **Cardinalité Maximale pour la Visualisation** : Pour maintenir la lisibilité des graphiques et éviter de surcharger le navigateur, certains types de graphiques appliquent des limites de cardinalité recommandée (ex. 7 catégories max pour un Pie Chart, 8 pour un Bar Chart Empilé).
-- **Mise en Veille Backend (Free Tier Cold Starts)** : En hébergement gratuit sur Render/Railway, le backend entre en veille après 15 minutes d'inactivité. Un délai de réveil de 10 à 25 secondes peut survenir lors du premier appel, pendant lequel l'UI affiche un indicateur de chargement dédié.
+- **Mise en Veille Backend (Free Tier Cold Starts)** : Sur le niveau gratuit de Hugging Face Spaces (CPU Basic, 16 Go RAM), le conteneur entre en veille après une période d'inactivité. Un délai de réveil ("Cold Start") de 10 à 30 secondes peut survenir lors de la première requête, pendant lequel le frontend affiche un état de chargement explicite.
 
 ---
 
 ## 🛠️ Stack Technique
 
-- **Frontend** : Next.js 14 (React, App Router), Tailwind CSS, Lucide React, Apache ECharts (`echarts` & `echarts-for-react`).
-- **Backend** : FastAPI (Python 3.12), DuckDB embarqué (In-Memory / Session), Pandas, PyYAML, OpenPyXL, xlrd, Sqlglot.
+- **Frontend** : Next.js 14 (React, App Router), Tailwind CSS, Lucide React, Apache ECharts (`echarts` & `echarts-for-react`) — Déployé sur **Vercel**.
+- **Backend** : FastAPI (Python 3.12), DuckDB embarqué (In-Memory / Session), Pandas, PyYAML, OpenPyXL, xlrd, Sqlglot — Déployé sur **Hugging Face Spaces** (Docker, Port 7860).
 - **LLM / IA** : Gemini API (`google-generativeai`) / Groq API (`groq`).
 - **Tests** : Pytest (Backend) & Vitest (Frontend).
 
@@ -75,6 +75,7 @@ Pour garantir un coût d'hébergement et d'utilisation **strictement nul ($0.00/
 ```
 .
 ├── backend/
+│   ├── Dockerfile                   # Configuration conteneur Docker pour Hugging Face Spaces (Port 7860)
 │   ├── app/
 │   │   ├── main.py                  # Endpoints FastAPI (Upload, Reclassify, Explore, Query, Health)
 │   │   ├── column_classifier.py     # Classificateur statistique & règles de validation des 16 graphiques
@@ -93,6 +94,16 @@ Pour garantir un coût d'hébergement et d'utilisation **strictement nul ($0.00/
 │   │   └── lib/                     # Client API Fetch (`api.ts`)
 └── README.md
 ```
+
+---
+
+## 🚀 Déploiement
+
+- **Backend (Hugging Face Spaces)** :
+  - Hébergé dans un Space Docker (`backend/Dockerfile`) configuré pour écouter sur le port obligatoire `7860`.
+  - Les clés d'API (`GROQ_API_KEY`, `GEMINI_API_KEY`, `DEFAULT_LLM_PROVIDER`) sont configurées dans les **Repository Secrets** du Space.
+- **Frontend (Vercel)** :
+  - Déployé directement sur Vercel avec la variable d'environnement `NEXT_PUBLIC_API_URL` pointant vers l'URL directe du Space Hugging Face (ex. `https://<user>-<space_name>.hf.space`).
 
 ---
 
