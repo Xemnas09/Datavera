@@ -1,0 +1,11 @@
+id_employe,nom,prenom,departement,poste,salaire_annuel,date_embauche,niveau_etudes,satisfaction_score
+EMP-001,Dupont,Jean,R&D,Ingénieur Senior,62000,2019-03-15,Master,8.5
+EMP-002,Martin,Sophie,Marketing,Chef de Projet,48000,2021-06-01,Master,7.8
+EMP-003,Bernard,Lucas,Ventes,Account Executive,55000,2020-01-10,Licence,9.0
+EMP-004,Petit,Camille,RH,Responsable Recrutement,51000,2018-11-20,Master,8.1
+EMP-005,Robert,Antoine,R&D,Data Scientist,58000,2022-02-14,Doctorat,8.9
+EMP-006,Richard,Emma,Finance,Contrôleur de Gestion,54000,2020-09-01,Master,7.5
+EMP-007,Durand,Thomas,Ventes,Directeur Commercial,85000,2016-04-05,Master,9.2
+EMP-008,Moreau,Léa,Marketing,Growth Hacker,42000,2023-01-16,Licence,8.0
+EMP-009,Lefebvre,Hugo,R&D,Développeur Fullstack,50000,2021-11-02,Master,8.4
+EMP-0010,Gras,Manon,Finance,Analyste Financier,47000,2022-08-20,Master,7.9
