@@ -102,10 +102,13 @@ def read_raw_rows_csv(file_path: Path, encoding: str, delimiter: str, max_rows: 
             raw_rows.append(row)
     return raw_rows
 
-def read_raw_rows_excel(file_path: Path, actual_format: str, sheet_name: Optional[str] = None) -> Tuple[List[List[Any]], List[str], str]:
+def read_excel_data(file_path: Path, actual_format: str, sheet_name: Optional[str] = None) -> Tuple[List[List[Any]], List[List[Any]], List[str], str]:
+    """
+    Reads Excel workbook, propagates merged cells, and returns (raw_preview_rows, all_unmerged_rows, available_sheets, selected_sheet)
+    """
     available_sheets = []
     selected_sheet = ""
-    raw_rows = []
+    all_rows = []
 
     if actual_format == "xlsx":
         try:
@@ -127,6 +130,7 @@ def read_raw_rows_excel(file_path: Path, actual_format: str, sheet_name: Optiona
         selected_sheet = sheet_name if sheet_name in available_sheets else available_sheets[0]
         ws = wb[selected_sheet]
 
+        # Unmerge cells and propagate top-left value across range
         merged_ranges = list(ws.merged_cells.ranges)
         for mrange in merged_ranges:
             top_left_value = ws.cell(mrange.min_row, mrange.min_col).value
@@ -135,10 +139,8 @@ def read_raw_rows_excel(file_path: Path, actual_format: str, sheet_name: Optiona
                 for col in range(mrange.min_col, mrange.max_col + 1):
                     ws.cell(row, col).value = top_left_value
 
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True)):
-            if r_idx >= 25:
-                break
-            raw_rows.append([cell for cell in row])
+        for row in ws.iter_rows(values_only=True):
+            all_rows.append([cell for cell in row])
 
     else:
         try:
@@ -152,10 +154,11 @@ def read_raw_rows_excel(file_path: Path, actual_format: str, sheet_name: Optiona
         selected_sheet = sheet_name if sheet_name in available_sheets else available_sheets[0]
         ws = wb.sheet_by_name(selected_sheet)
 
-        for r_idx in range(min(25, ws.nrows)):
-            raw_rows.append(ws.row_values(r_idx))
+        for r_idx in range(ws.nrows):
+            all_rows.append(ws.row_values(r_idx))
 
-    return raw_rows, available_sheets, selected_sheet
+    preview_rows = all_rows[:25]
+    return preview_rows, all_rows, available_sheets, selected_sheet
 
 def score_header_candidates(raw_rows: List[List[Any]]) -> Tuple[int, float]:
     if not raw_rows:
@@ -246,16 +249,13 @@ def sanitize_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
 
     df.columns = new_cols
 
-    # 3. Clean intercalated Total / Subtotal rows
-    rows_to_drop = []
-    for r_idx, row in df.iterrows():
-        str_vals = [str(val).strip().lower() for val in row.values if val is not None and not pd.isna(val)]
-        if any(kw in str_val for str_val in str_vals for kw in TOTAL_KEYWORDS):
-            rows_to_drop.append(r_idx)
-
-    if rows_to_drop:
-        df = df.drop(index=rows_to_drop)
-        warnings.append(f"{len(rows_to_drop)} ligne(s) de total/sous-total détectée(s) et ignorée(s) pour l'analyse.")
+    # 3. Clean intercalated Total / Subtotal rows (vectorized)
+    total_pattern = re.compile(r'\b(?:' + '|'.join(re.escape(kw) for kw in TOTAL_KEYWORDS) + r')\b', re.IGNORECASE)
+    mask_total = df.astype(str).apply(lambda s: s.str.contains(total_pattern, na=False)).any(axis=1)
+    if mask_total.any():
+        num_totals = int(mask_total.sum())
+        df = df[~mask_total]
+        warnings.append(f"{num_totals} ligne(s) de total/sous-total détectée(s) et ignorée(s) pour l'analyse.")
 
     # 4. Column Data Normalization
     for col in df.columns:
@@ -318,7 +318,7 @@ def ingest_file_v2(
         available_sheets = []
         sheet_name = None
     else:
-        raw_rows, available_sheets, sheet_name = read_raw_rows_excel(file_path, actual_format, selected_sheet)
+        raw_rows, all_unmerged_rows, available_sheets, sheet_name = read_excel_data(file_path, actual_format, selected_sheet)
         chosen_delimiter = None
         if len(available_sheets) > 1 and not selected_sheet:
             all_warnings.append(f"Classeur multi-feuilles détecté ({len(available_sheets)} feuilles). La feuille '{sheet_name}' a été sélectionnée par défaut.")
@@ -346,11 +346,16 @@ def ingest_file_v2(
             on_bad_lines="skip"
         )
     else:
-        df_raw = pd.read_excel(
-            file_path,
-            sheet_name=sheet_name,
-            header=best_header_idx
-        )
+        if all_unmerged_rows and best_header_idx < len(all_unmerged_rows):
+            header_row = all_unmerged_rows[best_header_idx]
+            data_rows = all_unmerged_rows[best_header_idx + 1:]
+            df_raw = pd.DataFrame(data_rows, columns=header_row)
+        else:
+            df_raw = pd.read_excel(
+                file_path,
+                sheet_name=sheet_name,
+                header=best_header_idx
+            )
 
     clean_df, clean_warns = sanitize_dataframe(df_raw)
     all_warnings.extend(clean_warns)
