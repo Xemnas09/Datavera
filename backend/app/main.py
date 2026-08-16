@@ -3,13 +3,12 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional, List, Tuple
-from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.config import MAX_UPLOAD_SIZE_BYTES
 from app.session_manager import session_manager, Session
-from app.ingestion import ingest_file_to_session
+from app.ingestion_v2 import ingest_file_v2
 from app.profiling import profile_dataset
 from app.samples import get_sample_list, get_sample_filepath
 from app.query_engine import process_chat_query
@@ -18,38 +17,34 @@ from app.schemas import (
     SampleDatasetInfo,
     SessionInfoResponse,
     ChatMessageRequest,
-    ChatMessageResponse
+    ChatMessageResponse,
+    IngestionConfigRequest
 )
 
 app = FastAPI(
     title="Datavera API",
     description="Backend analytique DuckDB et IA pour l'analyse de fichiers de données",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS Middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Next.js frontend / Vercel proxy
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def get_current_session(x_session_id: Optional[str] = Header(None)) -> Tuple[Session, str]:
-    session, created = session_manager.get_or_create_session(x_session_id)
-    return session, session.session_id
-
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "app": "Datavera API"}
+    return {"status": "ok", "app": "Datavera API V2"}
 
 @app.get("/api/session", response_model=SessionInfoResponse)
 def get_session_info(x_session_id: Optional[str] = Header(None)):
     session, created = session_manager.get_or_create_session(x_session_id)
     conn = session.get_connection()
 
-    # Check if table 'dataset' exists
     has_dataset = False
     row_count = None
     try:
@@ -83,14 +78,21 @@ def load_sample_dataset(sample_id: str, x_session_id: Optional[str] = Header(Non
     session, _ = session_manager.get_or_create_session(x_session_id)
 
     try:
-        ingest_file_to_session(session, file_path, filename)
+        ing_res = ingest_file_v2(session, file_path, filename)
         file_size = file_path.stat().st_size
         profile = profile_dataset(session, file_size)
 
         return UploadResponse(
             session_id=session.session_id,
             message=f"Jeu de données exemple '{filename}' chargé avec succès.",
-            profile=profile
+            profile=profile,
+            confidence_score=ing_res.confidence_score,
+            requires_user_action=ing_res.requires_user_action,
+            detected_header_index=ing_res.detected_header_index,
+            selected_sheet=ing_res.selected_sheet,
+            available_sheets=ing_res.available_sheets,
+            warnings=ing_res.warnings,
+            raw_preview_rows=ing_res.raw_preview_rows
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du chargement de l'échantillon: {str(e)}")
@@ -102,50 +104,85 @@ async def upload_file(
 ):
     session, _ = session_manager.get_or_create_session(x_session_id)
 
-    # Validate extension
-    file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in ['.csv', '.tsv', '.xlsx', '.xls']:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Format de fichier non supporté '{file_ext}'. Seuls les fichiers CSV, TSV, XLSX et XLS sont acceptés."
-        )
-
-    # Stream to temporary file
     temp_dir = Path("/tmp/datavera_uploads")
     temp_dir.mkdir(parents=True, exist_ok=True)
-
     temp_file_path = temp_dir / f"{session.session_id}_{file.filename}"
     file_size = 0
 
     try:
         with temp_file_path.open("wb") as buffer:
-            while chunk := await file.read(1024 * 1024): # 1MB chunking
+            while chunk := await file.read(1024 * 1024):
                 file_size += len(chunk)
                 if file_size > MAX_UPLOAD_SIZE_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Fichier trop volumineux. La taille maximale autorisée est de 150 Mo."
+                        detail="Fichier trop volumineux. La taille maximale autorisée est de 150 Mo."
                     )
                 buffer.write(chunk)
 
-        # Ingest file into DuckDB
-        ingest_file_to_session(session, temp_file_path, file.filename)
+        # Save temp file path on session for potential configure endpoint call
+        session.temp_upload_path = str(temp_file_path)
 
-        # Profile dataset
+        ing_res = ingest_file_v2(session, temp_file_path, file.filename)
         profile = profile_dataset(session, file_size)
 
         return UploadResponse(
             session_id=session.session_id,
             message=f"Fichier '{file.filename}' importé et analysé avec succès.",
-            profile=profile
+            profile=profile,
+            confidence_score=ing_res.confidence_score,
+            requires_user_action=ing_res.requires_user_action,
+            detected_header_index=ing_res.detected_header_index,
+            selected_sheet=ing_res.selected_sheet,
+            available_sheets=ing_res.available_sheets,
+            warnings=ing_res.warnings,
+            raw_preview_rows=ing_res.raw_preview_rows
         )
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse du fichier: {str(e)}")
-    finally:
-        if temp_file_path.exists():
-            temp_file_path.unlink(missing_ok=True)
+
+@app.post("/api/upload/configure", response_model=UploadResponse)
+def reconfigure_ingestion(
+    body: IngestionConfigRequest,
+    x_session_id: Optional[str] = Header(None)
+):
+    session = session_manager.get_session(x_session_id)
+    if not session or not getattr(session, "temp_upload_path", None) or not Path(session.temp_upload_path).exists():
+        raise HTTPException(status_code=404, detail="Aucun fichier d'importation en attente de configuration.")
+
+    temp_path = Path(session.temp_upload_path)
+    filename = session.dataset_filename or temp_path.name
+    file_size = temp_path.stat().st_size
+
+    try:
+        ing_res = ingest_file_v2(
+            session,
+            temp_path,
+            filename,
+            selected_sheet=body.sheet_name,
+            header_index=body.header_index,
+            delimiter=body.delimiter
+        )
+        profile = profile_dataset(session, file_size)
+
+        return UploadResponse(
+            session_id=session.session_id,
+            message=f"Importation du fichier '{filename}' reconfigurée avec succès.",
+            profile=profile,
+            confidence_score=ing_res.confidence_score,
+            requires_user_action=False, # User has configured
+            detected_header_index=ing_res.detected_header_index,
+            selected_sheet=ing_res.selected_sheet,
+            available_sheets=ing_res.available_sheets,
+            warnings=ing_res.warnings,
+            raw_preview_rows=ing_res.raw_preview_rows
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la reconfiguration de l'import: {str(e)}")
 
 @app.post("/api/query", response_model=ChatMessageResponse)
 def query_dataset(

@@ -29,7 +29,8 @@ def profile_dataset(session: Session, file_size_bytes: int) -> DatasetProfile:
         col_type = str(col_info[1])
 
         # Escape column name in SQL identifier
-        escaped_col = f'"{col_name.replace('"', '""')}"'
+        col_escaped_str = col_name.replace('"', '""')
+        escaped_col = f'"{col_escaped_str}"'
 
         # Null count
         null_res = conn.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {escaped_col} IS NULL").fetchone()

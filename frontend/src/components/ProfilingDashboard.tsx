@@ -3,13 +3,14 @@
 import React, { useState } from "react";
 import { DatasetProfile } from "@/lib/api";
 import { DataTable } from "./DataTable";
-import { FileSpreadsheet, BarChart2, Table as TableIcon, Layers, Info, AlertTriangle } from "lucide-react";
+import { FileSpreadsheet, BarChart2, Table as TableIcon, Layers, Info, AlertTriangle, ShieldCheck } from "lucide-react";
 
 interface ProfilingDashboardProps {
   profile: DatasetProfile;
+  warnings?: string[];
 }
 
-export const ProfilingDashboard: React.FC<ProfilingDashboardProps> = ({ profile }) => {
+export const ProfilingDashboard: React.FC<ProfilingDashboardProps> = ({ profile, warnings = [] }) => {
   const [activeTab, setActiveTab] = useState<"columns" | "sample">("columns");
 
   const formatBytes = (bytes: number) => {
@@ -24,6 +25,21 @@ export const ProfilingDashboard: React.FC<ProfilingDashboardProps> = ({ profile 
 
   return (
     <div className="space-y-6">
+      {/* Transparency Warnings Banner */}
+      {warnings && warnings.length > 0 && (
+        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 shadow-sm text-xs sm:text-sm text-amber-900 space-y-2">
+          <div className="flex items-center space-x-2 font-bold text-amber-900">
+            <Info className="w-4 h-4 text-amber-700 flex-shrink-0" />
+            <span>Ajustements automatiques de transparence effectués lors de l'importation :</span>
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-amber-800 pl-1">
+            {warnings.map((w, idx) => (
+              <li key={idx}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center space-x-3">

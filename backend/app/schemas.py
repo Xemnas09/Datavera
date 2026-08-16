@@ -23,23 +23,22 @@ class UploadResponse(BaseModel):
     session_id: str
     message: str
     profile: DatasetProfile
+    confidence_score: float = 1.0
+    requires_user_action: bool = False
+    detected_header_index: int = 0
+    selected_sheet: Optional[str] = None
+    available_sheets: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    raw_preview_rows: List[List[Any]] = Field(default_factory=list)
+
+class IngestionConfigRequest(BaseModel):
+    sheet_name: Optional[str] = None
+    header_index: Optional[int] = None
+    delimiter: Optional[str] = None
 
 class ChatMessageRequest(BaseModel):
     question: str
-    provider: Optional[str] = None  # 'groq' or 'gemini'
-
-class EChartsSeries(BaseModel):
-    name: str
-    type: str  # 'bar', 'line', 'pie', 'scatter'
-    data: List[Any]
-
-class EChartsOption(BaseModel):
-    title: Optional[Dict[str, Any]] = None
-    tooltip: Optional[Dict[str, Any]] = None
-    legend: Optional[Dict[str, Any]] = None
-    xAxis: Optional[Dict[str, Any]] = None
-    yAxis: Optional[Dict[str, Any]] = None
-    series: Optional[List[Dict[str, Any]]] = None
+    provider: Optional[str] = None
 
 class ChatMessageResponse(BaseModel):
     question: str
@@ -49,7 +48,7 @@ class ChatMessageResponse(BaseModel):
     columns: List[str]
     row_count: int
     chart_recommended: bool
-    chart_type: Optional[str] = None  # 'bar', 'line', 'pie', 'scatter', 'table'
+    chart_type: Optional[str] = None
     chart_options: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 

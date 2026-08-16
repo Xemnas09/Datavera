@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Upload, FileSpreadsheet, Sparkles, CheckCircle2, AlertCircle, ArrowRight } from "lucide-react";
-import { uploadFile, fetchSampleDatasets, loadSampleDataset, SampleDatasetInfo, DatasetProfile } from "@/lib/api";
+import { Upload, FileSpreadsheet, Sparkles, AlertTriangle, ArrowRight, Info, CheckCircle2 } from "lucide-react";
+import { uploadFile, fetchSampleDatasets, loadSampleDataset, SampleDatasetInfo, DatasetProfile, UploadResponse } from "@/lib/api";
+import { IngestionConfigModal } from "./IngestionConfigModal";
 
 interface UploadSectionProps {
-  onProfileLoaded: (profile: DatasetProfile) => void;
+  onProfileLoaded: (profile: DatasetProfile, warnings?: string[]) => void;
 }
 
 export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded }) => {
@@ -15,6 +16,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
   const [error, setError] = useState<string | null>(null);
   const [samples, setSamples] = useState<SampleDatasetInfo[]>([]);
   const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
+  const [pendingUploadData, setPendingUploadData] = useState<UploadResponse | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -23,6 +25,14 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
       .catch((err) => console.error("Erreur chargement échantillons", err));
   }, []);
 
+  const handleUploadSuccess = (res: UploadResponse) => {
+    if (res.requires_user_action) {
+      setPendingUploadData(res);
+    } else {
+      onProfileLoaded(res.profile, res.warnings);
+    }
+  };
+
   const handleFileSelect = async (file: File) => {
     setError(null);
     setLoading(true);
@@ -30,7 +40,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
 
     try {
       const res = await uploadFile(file, (p) => setProgress(p));
-      onProfileLoaded(res.profile);
+      handleUploadSuccess(res);
     } catch (err: any) {
       setError(err.message || "Erreur lors de l'importation du fichier.");
     } finally {
@@ -51,7 +61,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
     setLoadingSampleId(sampleId);
     try {
       const res = await loadSampleDataset(sampleId);
-      onProfileLoaded(res.profile);
+      handleUploadSuccess(res);
     } catch (err: any) {
       setError(err.message || "Erreur lors du chargement du jeu d'essai.");
     } finally {
@@ -67,7 +77,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
           Analysez vos données en <span className="bg-clip-text text-transparent bg-gradient-to-r from-sky-600 to-indigo-600">langage naturel</span>
         </h1>
         <p className="text-slate-600 max-w-2xl mx-auto text-sm sm:text-base">
-          Importez votre fichier CSV ou Excel (jusqu'à 150 Mo). Posez vos questions dans le chat, obtenez des requêtes DuckDB SQL transparentes et des graphiques interactifs.
+          Importez votre fichier CSV ou Excel (jusqu'à 150 Mo). Notre pipeline d'ingestion intelligent nettoie les données, détecte les en-têtes et gère les formats complexes.
         </p>
       </div>
 
@@ -113,7 +123,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
           {loading && (
             <div className="max-w-md mx-auto space-y-2 pt-2">
               <div className="flex justify-between text-xs text-slate-600 font-medium">
-                <span>Traitement du fichier et analyse DuckDB...</span>
+                <span>Ingestion intelligente & analyse DuckDB...</span>
                 <span>{progress}%</span>
               </div>
               <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
@@ -130,9 +140,25 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onProfileLoaded })
       {/* Error Message Alert */}
       {error && (
         <div className="flex items-center space-x-3 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <span>{error}</span>
         </div>
+      )}
+
+      {/* Ingestion Configuration Modal for Low Confidence or Multi-Sheet */}
+      {pendingUploadData && (
+        <IngestionConfigModal
+          uploadData={pendingUploadData}
+          onConfigApplied={(newRes) => {
+            setPendingUploadData(null);
+            onProfileLoaded(newRes.profile, newRes.warnings);
+          }}
+          onCancel={() => {
+            const data = pendingUploadData;
+            setPendingUploadData(null);
+            onProfileLoaded(data.profile, data.warnings);
+          }}
+        />
       )}
 
       {/* Sample Datasets Section */}
