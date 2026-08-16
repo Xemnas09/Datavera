@@ -67,6 +67,7 @@ def generate_sql_with_groq(prompt: str) -> Tuple[str, str]:
             {"role": "user", "content": prompt}
         ],
         temperature=0.1,
+        timeout=10.0,  # 10s timeout
         response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
@@ -108,7 +109,8 @@ def generate_sql_query(
     error_feedback: Optional[str] = None
 ) -> Tuple[str, str]:
     """
-    Calls requested provider (or default) and falls back gracefully if unconfigured.
+    Calls requested provider (or default) and falls back gracefully if unconfigured or failed.
+    Categorizes errors for clear user-facing feedback without raw stack traces.
     Returns: (sql, explanation)
     """
     target_provider = (provider or DEFAULT_LLM_PROVIDER).lower()
@@ -119,14 +121,26 @@ def generate_sql_query(
         try:
             return generate_sql_with_groq(user_prompt)
         except Exception as e:
-            logger.warning(f"Error calling Groq API: {e}. Trying Gemini if available.")
+            err_msg = str(e).lower()
+            if "quota" in err_msg or "429" in err_msg or "rate limit" in err_msg:
+                logger.error(f"Quota Groq dépassé : {e}")
+            elif "timeout" in err_msg:
+                logger.error(f"Timeout lors de l'appel Groq : {e}")
+            else:
+                logger.warning(f"Erreur API Groq : {e}. Tentative avec Gemini...")
 
     if (target_provider == "gemini" or not GROQ_API_KEY) and GEMINI_API_KEY:
         try:
             return generate_sql_with_gemini(user_prompt)
         except Exception as e:
-            logger.warning(f"Error calling Gemini API: {e}.")
+            err_msg = str(e).lower()
+            if "quota" in err_msg or "429" in err_msg or "resource_exhausted" in err_msg:
+                logger.error(f"Quota Gemini dépassé : {e}")
+            elif "timeout" in err_msg:
+                logger.error(f"Timeout lors de l'appel Gemini : {e}")
+            else:
+                logger.warning(f"Erreur API Gemini : {e}.")
 
-    # If both primary and secondary fail or no API keys exist
-    logger.info("Using heuristic SQL fallback generator.")
+    # Fallback generator
+    logger.info("Génération de secours par heuristique (moteur local sans LLM).")
     return generate_fallback_sql(question, schema_info)
