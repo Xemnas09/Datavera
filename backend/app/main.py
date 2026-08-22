@@ -43,17 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.logging_config import setup_logging
-setup_logging()
-
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "app": "Datavera API V2",
-        "version": "2.0.0",
-        "duckdb": "embedded_active"
-    }
+    return {"status": "ok", "app": "Datavera API V2"}
 
 @app.get("/api/session", response_model=SessionInfoResponse)
 def get_session_info(x_session_id: Optional[str] = Header(None)):
